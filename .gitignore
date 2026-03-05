@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+data/bots.json
+data/trades.json
+*.log
+.DS_Store
+.vscode/
