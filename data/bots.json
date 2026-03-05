@@ -1,0 +1,49 @@
+[
+  {
+    "id": "830cd6fc-6921-4a4f-aca0-fa973cc7b609",
+    "template": "spot_arb",
+    "name": "Spot Arbitrage Bot",
+    "status": "idle",
+    "mode": "paper",
+    "platforms": [
+      "Binance",
+      "Coinbase"
+    ],
+    "risk": {
+      "minSpread": 0.05,
+      "maxPositionSize": 500,
+      "maxDailyExposure": 5000,
+      "maxConcurrentTrades": 3,
+      "maxDailyLoss": 50,
+      "slippageTolerance": 0.1
+    },
+    "execution": {
+      "speed": "fast",
+      "failedLegAction": "unwind",
+      "requireAiApproval": false,
+      "minConfidence": 3
+    },
+    "notifications": {
+      "onTrade": true,
+      "onError": true,
+      "onPause": false
+    },
+    "templateParams": {},
+    "performance": {
+      "totalTrades": 0,
+      "successfulTrades": 0,
+      "failedTrades": 0,
+      "winRate": 0,
+      "totalPnl": 0,
+      "todayPnl": 0,
+      "totalVolume": 0,
+      "avgProfitPerTrade": 0,
+      "bestTrade": 0,
+      "worstTrade": 0,
+      "currentOpenPositions": 0,
+      "uptimeHours": 0
+    },
+    "createdAt": 1771686647210,
+    "updatedAt": 1771686647210
+  }
+]
