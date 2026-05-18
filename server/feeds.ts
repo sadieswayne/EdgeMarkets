@@ -277,6 +277,97 @@ async function fetchPolymarket(): Promise<ServerOpportunity[]> {
   return out;
 }
 
+// Kalshi public market data — GET /markets is unauthenticated
+// (OpenAPI security: []), so no API key or request signing is needed.
+async function fetchKalshi(): Promise<ServerOpportunity[]> {
+  const base =
+    process.env.KALSHI_API_BASE ||
+    "https://api.elections.kalshi.com/trade-api/v2";
+  // mve_filter=exclude drops multivariate sports parlays server-side
+  // (otherwise they swamp the first pages and hide real markets).
+  const j = await getJson(
+    `${base}/markets?status=open&limit=1000&mve_filter=exclude`,
+  );
+  const markets = j?.markets;
+  if (!Array.isArray(markets)) return [];
+
+  const ranked = markets
+    .map((m: any) => {
+      const ask = parseFloat(m.yes_ask_dollars);
+      const bid = parseFloat(m.yes_bid_dollars);
+      const vol =
+        parseFloat(m.volume_24h_fp) || parseFloat(m.volume_fp) || 0;
+      const oi = parseFloat(m.open_interest_fp) || 0;
+      return { m, ask, bid, liq: Math.max(vol, oi) };
+    })
+    .filter(
+      (r) =>
+        r.bid > 0 &&
+        r.ask > 0 &&
+        r.ask > r.bid &&
+        r.ask < 1 &&
+        r.liq >= 200 &&
+        // drop illiquid multivariate sports parlays — they dominate the
+        // raw feed but aren't meaningful single-question markets
+        !r.m.mve_collection_ticker &&
+        !/^KXMVE/.test(r.m.ticker || ""),
+    )
+    .sort((a, b) => b.liq - a.liq);
+
+  // One market per event (the most liquid strike) for a diverse list.
+  const seen = new Set<string>();
+  const rows: typeof ranked = [];
+  for (const r of ranked) {
+    const ev = r.m.event_ticker || r.m.ticker;
+    if (seen.has(ev)) continue;
+    seen.add(ev);
+    rows.push(r);
+    if (rows.length >= 14) break;
+  }
+
+  const out: ServerOpportunity[] = [];
+  for (const { m, ask, bid, liq } of rows) {
+    const rawSpread = ((ask - bid) / ask) * 100;
+    const liquidity = Math.round(liq);
+    const id = `kalshi:${m.ticker}`;
+    const t = track(id, rawSpread);
+    const title: string =
+      m.title || m.yes_sub_title || m.ticker || "Kalshi market";
+    out.push({
+      id,
+      type: "prediction",
+      asset: title,
+      assetShort: title.length > 38 ? title.slice(0, 36) + "…" : title,
+      buyPlatform: "Kalshi",
+      sellPlatform: "Kalshi",
+      buyPrice: parseFloat(ask.toFixed(3)),
+      sellPrice: parseFloat(bid.toFixed(3)),
+      rawSpread: parseFloat(rawSpread.toFixed(3)),
+      netProfit: parseFloat((-rawSpread).toFixed(3)),
+      netProfitDollar: parseFloat((-rawSpread * 10).toFixed(2)),
+      confidence: confidenceFromLiquidity(liquidity),
+      liquidity,
+      buyFee: 0,
+      sellFee: 0,
+      slippageEst: parseFloat((rawSpread / 2).toFixed(3)),
+      detectedAt: t.detectedAt,
+      aiInsight: "",
+      aiRisk: null,
+      aiReason: null,
+      aiConfidence: null,
+      aiAnalyzedAt: null,
+      aiRiskBreakdown: null,
+      algorithmicRisk: riskFromSpread(rawSpread, liquidity),
+      hasAiInsight: false,
+      isAiAnalyzing: false,
+      aiModel: null,
+      status: "active",
+      spreadHistory: t.history.slice(),
+    });
+  }
+  return out;
+}
+
 export interface Connection {
   platform: string;
   status: "connected" | "disconnected";
@@ -301,11 +392,12 @@ const CACHE_MS = 4000;
 let inflight: Promise<LiveData> | null = null;
 
 async function refresh(): Promise<LiveData> {
-  const [bybit, okx, binance, poly] = await Promise.all([
+  const [bybit, okx, binance, poly, kalshi] = await Promise.all([
     fetchBybit(),
     fetchOkx(),
     fetchBinance(),
     fetchPolymarket().catch(() => []),
+    fetchKalshi().catch(() => []),
   ]);
 
   const venues: { venue: string; book: VenueBook }[] = [];
@@ -314,7 +406,7 @@ async function refresh(): Promise<LiveData> {
   if (binance) venues.push({ venue: "Binance", book: binance });
 
   const crypto = venues.length >= 2 ? buildCrypto(venues) : [];
-  const prediction = poly;
+  const prediction = [...kalshi, ...poly];
   const haveLiveCrypto = crypto.length > 0;
   const haveLivePred = prediction.length > 0;
 
@@ -347,8 +439,8 @@ async function refresh(): Promise<LiveData> {
     { platform: "Bybit", up: !!bybit, n: bybit?.size ?? 0 },
     { platform: "OKX", up: !!okx, n: okx?.size ?? 0 },
     { platform: "Binance", up: !!binance, n: binance?.size ?? 0 },
-    { platform: "Polymarket", up: haveLivePred, n: prediction.length },
-    { platform: "Kalshi", up: false, n: 0 },
+    { platform: "Kalshi", up: kalshi.length > 0, n: kalshi.length },
+    { platform: "Polymarket", up: poly.length > 0, n: poly.length },
     { platform: "Coinbase", up: false, n: 0 },
   ].map((c) => ({
     platform: c.platform,
