@@ -1,12 +1,12 @@
 import { Router, type Request, type Response } from "express";
 import {
-  engine,
   bots,
   BOT_TEMPLATES,
   aiStatus,
   aiUsage,
   newsAlerts,
 } from "./store";
+import { getLiveData } from "./feeds";
 
 const chatSessions = new Map<
   string,
@@ -197,12 +197,14 @@ export function createApiRouter(): Router {
     });
   }
 
-  /* ---- Opportunities (REST fallback for environments without WS) ---- */
-  router.get("/api/opportunities", (_req, res) => {
+  /* ---- Opportunities (live feed; primary source on serverless/Vercel) ---- */
+  router.get("/api/opportunities", async (_req, res) => {
+    const data = await getLiveData();
     res.json({
-      opportunities: engine.list(),
-      connections: engine.connections(),
-      stats: engine.stats(),
+      opportunities: data.opportunities,
+      connections: data.connections,
+      stats: data.stats,
+      live: data.live,
     });
   });
 

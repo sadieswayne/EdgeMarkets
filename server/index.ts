@@ -3,7 +3,8 @@ import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import path from "path";
 import { createApiRouter } from "./routes";
-import { engine, bots } from "./store";
+import { bots } from "./store";
+import { getLiveData } from "./feeds";
 
 const app = express();
 app.disable("x-powered-by");
@@ -15,27 +16,32 @@ const server = createServer(app);
 /* ---- WebSocket: live opportunity stream on /ws ---- */
 const wss = new WebSocketServer({ server, path: "/ws" });
 
-function snapshot() {
+async function snapshot() {
+  const data = await getLiveData();
   return JSON.stringify({
     type: "snapshot",
-    opportunities: engine.list(),
-    connections: engine.connections(),
-    stats: engine.stats(),
+    opportunities: data.opportunities,
+    connections: data.connections,
+    stats: data.stats,
     timestamp: Date.now(),
   });
 }
 
-wss.on("connection", (ws) => {
-  ws.send(snapshot());
+wss.on("connection", async (ws) => {
+  try {
+    ws.send(await snapshot());
+  } catch {
+    /* client may have closed */
+  }
 });
 
-setInterval(() => {
-  engine.tick();
-  const payload = snapshot();
+setInterval(async () => {
+  if (![...wss.clients].some((c) => c.readyState === WebSocket.OPEN)) return;
+  const payload = await snapshot();
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) client.send(payload);
   }
-}, 2000);
+}, 3000);
 
 setInterval(() => bots.tick(), 3000);
 

@@ -4,13 +4,15 @@
 // simulation is advanced opportunistically on each request instead.
 import express from "express";
 import { createApiRouter } from "../server/routes";
-import { engine, bots } from "../server/store";
+import { bots } from "../server/store";
 
 const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
+// No long-lived process on serverless: advance the bot simulation a step
+// per request. Live market data is fetched (and cached) inside the
+// /api/opportunities handler itself.
 app.use((_req, _res, next) => {
-  engine.tick();
   bots.tick();
   next();
 });

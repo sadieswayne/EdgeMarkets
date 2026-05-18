@@ -279,6 +279,25 @@ class OpportunityEngine {
 
 export const engine = new OpportunityEngine();
 
+// Fresh synthetic opportunities for a given set of categories. Used as a
+// fallback for markets we don't have a free live feed for (forex / options /
+// futures-basis), and for everything when all live feeds are unreachable.
+export function syntheticOpportunities(
+  types: OpportunityType[],
+): ServerOpportunity[] {
+  const out: ServerOpportunity[] = [];
+  for (const type of types) {
+    for (const seed of SEEDS[type]) {
+      const o = build(seed, type);
+      // jitter the price a touch so repeated calls aren't identical
+      const j = 1 + rand(-0.004, 0.004);
+      o.buyPrice = parseFloat((o.buyPrice * j).toFixed(o.buyPrice < 1 ? 4 : 2));
+      out.push(o);
+    }
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------ */
 /* Bots                                                                */
 /* ------------------------------------------------------------------ */

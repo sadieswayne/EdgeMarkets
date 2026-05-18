@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { type ArbitrageOpportunity, type FilterState, type LiveStats, type NewsAlertData } from '../lib/types';
 import { generateInitialData, generateNewOpportunity, tickPrices } from '../lib/mockGenerator';
 import { useLiveData, type PlatformConnection } from './useLiveData';
+import { useRestData } from './useRestData';
 
 function useMockMode(): boolean {
   const [isMock, setIsMock] = useState(false);
@@ -115,17 +116,34 @@ export function useTerminal() {
   const mock = useMockData();
   const live = useLiveData(isMockParam);
 
-  // When no live WebSocket backend is reachable (e.g. static/serverless
-  // hosting like Vercel), fall back to the client-side data generator after
-  // a short grace period. If a WebSocket connects later, switch to it.
+  // Data-source priority:
+  //   1. ?mock=true            → client-side generator (explicit demo)
+  //   2. live WebSocket        → real feed streamed from a running server
+  //   3. REST /api/opportunities → real feed (serverless/Vercel, no WS)
+  //   4. only if REST produces nothing → client generator (last resort)
+  const restEnabled = !isMockParam && !live.isConnected;
+  const rest = useRestData(restEnabled);
+
   const [graceElapsed, setGraceElapsed] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setGraceElapsed(true), 4000);
+    const t = setTimeout(() => setGraceElapsed(true), 7000);
     return () => clearTimeout(t);
   }, []);
-  const wsUnavailable =
-    graceElapsed && !live.isConnected && live.opportunities.length === 0;
-  const isMock = isMockParam || wsUnavailable;
+
+  const restEmptyAfterGrace =
+    graceElapsed &&
+    rest.loaded &&
+    rest.opportunities.length === 0;
+  const mode: 'mock' | 'live' | 'rest' = isMockParam
+    ? 'mock'
+    : live.isConnected
+      ? 'live'
+      : rest.opportunities.length > 0
+        ? 'rest'
+        : restEmptyAfterGrace
+          ? 'mock'
+          : 'rest';
+  const isMock = mode === 'mock';
 
   const mockConnections: PlatformConnection[] = useMemo(() => [
     { platform: 'Binance', status: 'connected', pairsCount: 12, lastUpdate: Date.now() },
@@ -163,21 +181,33 @@ export function useTerminal() {
     },
   ], []);
 
-  const dataSource = isMock ? {
-    opportunities: mock.opportunities,
-    priceFlashes: mock.priceFlashes,
-    newRowIds: mock.newRowIds,
-    connections: mockConnections,
-    isConnected: true,
-    newsAlerts: mockNewsAlerts,
-  } : {
-    opportunities: live.opportunities,
-    priceFlashes: live.priceFlashes,
-    newRowIds: live.newRowIds,
-    connections: live.connections,
-    isConnected: live.isConnected,
-    newsAlerts: live.newsAlerts,
-  };
+  const dataSource =
+    mode === 'mock'
+      ? {
+          opportunities: mock.opportunities,
+          priceFlashes: mock.priceFlashes,
+          newRowIds: mock.newRowIds,
+          connections: mockConnections,
+          isConnected: true,
+          newsAlerts: mockNewsAlerts,
+        }
+      : mode === 'live'
+        ? {
+            opportunities: live.opportunities,
+            priceFlashes: live.priceFlashes,
+            newRowIds: live.newRowIds,
+            connections: live.connections,
+            isConnected: live.isConnected,
+            newsAlerts: live.newsAlerts,
+          }
+        : {
+            opportunities: rest.opportunities,
+            priceFlashes: rest.priceFlashes,
+            newRowIds: rest.newRowIds,
+            connections: rest.connections,
+            isConnected: true,
+            newsAlerts: [] as NewsAlertData[],
+          };
 
   const [filters, setFilters] = useState<FilterState>({
     category: 'all',
