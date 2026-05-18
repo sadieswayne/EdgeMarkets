@@ -1,0 +1,26 @@
+{
+  "include": ["client/src", "server", "shared", "api", "vite.config.ts"],
+  "exclude": ["node_modules", "dist", "build"],
+  "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "./node_modules/.cache/tsbuildinfo",
+    "noEmit": true,
+    "module": "ESNext",
+    "strict": true,
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "jsx": "preserve",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "moduleResolution": "bundler",
+    "target": "ESNext",
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node", "vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./client/src/*"],
+      "@shared/*": ["./shared/*"]
+    }
+  }
+}
