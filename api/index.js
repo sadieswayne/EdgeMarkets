@@ -29791,6 +29791,34 @@ async function fetchKalshiRaw() {
 var STOPWORDS = new Set(
   "the a an of to in on by for will be is are at or and vs do does did than then this that with from into over under above below before after win wins won market markets event price yes no question who what when which year more less number total points game match".split(" ")
 );
+var ALIASES = {
+  bitcoin: "btc",
+  ether: "eth",
+  ethereum: "eth",
+  solana: "sol",
+  dogecoin: "doge",
+  ripple: "xrp",
+  president: "election",
+  presidential: "election",
+  potus: "election",
+  elect: "election",
+  republican: "gop",
+  republicans: "gop",
+  democrat: "dem",
+  democrats: "dem",
+  democratic: "dem",
+  nominee: "nomination",
+  nominate: "nomination",
+  federal: "fed",
+  reserve: "fed",
+  inflation: "cpi",
+  govt: "government"
+};
+function canon(tok) {
+  let t = tok;
+  if (t.length > 4 && t.endsWith("s") && !t.endsWith("ss")) t = t.slice(0, -1);
+  return ALIASES[t] || t;
+}
 function tokenize(title) {
   const tokens = /* @__PURE__ */ new Set();
   const strong = /* @__PURE__ */ new Set();
@@ -29806,16 +29834,17 @@ function tokenize(title) {
       continue;
     }
     if (STOPWORDS.has(low) || low.length < 3) continue;
-    tokens.add(low);
-    if (isProper) strong.add(low);
+    const c = canon(low);
+    tokens.add(c);
+    if (isProper || ALIASES[low]) strong.add(c);
   }
   return { tokens, strong };
 }
 function similarity(a, b) {
+  if (!a.size || !b.size) return 0;
   let inter = 0;
   for (const t of a) if (b.has(t)) inter++;
-  const union = a.size + b.size - inter;
-  return union ? inter / union : 0;
+  return inter / Math.min(a.size, b.size);
 }
 function crossVenuePredictions(poly, kalshi) {
   const P = poly.map((m) => ({ m, ...tokenize(m.title) }));
@@ -29895,6 +29924,40 @@ function crossVenuePredictions(poly, kalshi) {
     if (out.length >= 12) break;
   }
   return out;
+}
+async function predScan() {
+  const [poly, kalshi] = await Promise.all([
+    fetchPolyRaw().catch(() => []),
+    fetchKalshiRaw().catch(() => [])
+  ]);
+  const P = poly.map((m) => ({ m, ...tokenize(m.title) }));
+  const K = kalshi.map((m) => ({ m, ...tokenize(m.title) }));
+  const pairs = [];
+  for (const p of P) {
+    for (const k of K) {
+      const sim = similarity(p.tokens, k.tokens);
+      if (sim < 0.34) continue;
+      let strong = 0;
+      for (const s of p.strong) if (k.strong.has(s)) strong++;
+      let shared = 0;
+      for (const t of p.tokens) if (k.tokens.has(t)) shared++;
+      pairs.push({
+        sim: +sim.toFixed(2),
+        strong,
+        shared,
+        poly: p.m.title,
+        kalshi: k.m.title
+      });
+    }
+  }
+  pairs.sort((a, b) => b.sim - a.sim);
+  return {
+    polyCount: poly.length,
+    kalshiCount: kalshi.length,
+    samplePoly: poly.slice(0, 12).map((m) => m.title),
+    sampleKalshi: kalshi.slice(0, 12).map((m) => m.title),
+    topPairs: pairs.slice(0, 30)
+  };
 }
 var cache = null;
 var CACHE_MS = 4e3;
@@ -30176,6 +30239,9 @@ function createApiRouter() {
       stats: data.stats,
       live: data.live
     });
+  });
+  router.get("/api/predscan", async (_req, res) => {
+    res.json(await predScan());
   });
   return router;
 }

@@ -484,6 +484,40 @@ const STOPWORDS = new Set(
     .split(" "),
 );
 
+// Canonicalise synonyms so the same event matches across venues even
+// when worded differently (e.g. "Bitcoin" vs "BTC", "presidential" vs
+// "election", "Democratic" vs "dem").
+const ALIASES: Record<string, string> = {
+  bitcoin: "btc",
+  ether: "eth",
+  ethereum: "eth",
+  solana: "sol",
+  dogecoin: "doge",
+  ripple: "xrp",
+  president: "election",
+  presidential: "election",
+  potus: "election",
+  elect: "election",
+  republican: "gop",
+  republicans: "gop",
+  democrat: "dem",
+  democrats: "dem",
+  democratic: "dem",
+  nominee: "nomination",
+  nominate: "nomination",
+  federal: "fed",
+  reserve: "fed",
+  inflation: "cpi",
+  govt: "government",
+};
+
+function canon(tok: string): string {
+  let t = tok;
+  // crude depluralise (elections -> election, odds stay)
+  if (t.length > 4 && t.endsWith("s") && !t.endsWith("ss")) t = t.slice(0, -1);
+  return ALIASES[t] || t;
+}
+
 function tokenize(title: string) {
   const tokens = new Set<string>();
   const strong = new Set<string>(); // years / proper nouns / numbers
@@ -499,17 +533,20 @@ function tokenize(title: string) {
       continue;
     }
     if (STOPWORDS.has(low) || low.length < 3) continue;
-    tokens.add(low);
-    if (isProper) strong.add(low);
+    const c = canon(low);
+    tokens.add(c);
+    if (isProper || ALIASES[low]) strong.add(c);
   }
   return { tokens, strong };
 }
 
+// Overlap coefficient — robust when titles have very different lengths
+// (Polymarket questions are long, Kalshi titles terse).
 function similarity(a: Set<string>, b: Set<string>) {
+  if (!a.size || !b.size) return 0;
   let inter = 0;
   for (const t of a) if (b.has(t)) inter++;
-  const union = a.size + b.size - inter;
-  return union ? inter / union : 0;
+  return inter / Math.min(a.size, b.size);
 }
 
 // Match the SAME real-world event across Polymarket and Kalshi and build a
@@ -607,6 +644,44 @@ function crossVenuePredictions(
     if (out.length >= 12) break;
   }
   return out;
+}
+
+// TEMPORARY diagnostic: inspect raw venue titles and top candidate pairs
+// (regardless of threshold) so the matcher can be calibrated against the
+// real Vercel-side data. Remove once tuned.
+export async function predScan() {
+  const [poly, kalshi] = await Promise.all([
+    fetchPolyRaw().catch(() => [] as PredMarket[]),
+    fetchKalshiRaw().catch(() => [] as PredMarket[]),
+  ]);
+  const P = poly.map((m) => ({ m, ...tokenize(m.title) }));
+  const K = kalshi.map((m) => ({ m, ...tokenize(m.title) }));
+  const pairs: any[] = [];
+  for (const p of P) {
+    for (const k of K) {
+      const sim = similarity(p.tokens, k.tokens);
+      if (sim < 0.34) continue;
+      let strong = 0;
+      for (const s of p.strong) if (k.strong.has(s)) strong++;
+      let shared = 0;
+      for (const t of p.tokens) if (k.tokens.has(t)) shared++;
+      pairs.push({
+        sim: +sim.toFixed(2),
+        strong,
+        shared,
+        poly: p.m.title,
+        kalshi: k.m.title,
+      });
+    }
+  }
+  pairs.sort((a, b) => b.sim - a.sim);
+  return {
+    polyCount: poly.length,
+    kalshiCount: kalshi.length,
+    samplePoly: poly.slice(0, 12).map((m) => m.title),
+    sampleKalshi: kalshi.slice(0, 12).map((m) => m.title),
+    topPairs: pairs.slice(0, 30),
+  };
 }
 
 export interface Connection {

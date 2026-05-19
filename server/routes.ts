@@ -6,7 +6,7 @@ import {
   aiUsage,
   newsAlerts,
 } from "./store";
-import { getLiveData } from "./feeds";
+import { getLiveData, predScan } from "./feeds";
 
 const chatSessions = new Map<
   string,
@@ -206,6 +206,11 @@ export function createApiRouter(): Router {
       stats: data.stats,
       live: data.live,
     });
+  });
+
+  // TEMPORARY: prediction-matcher calibration. Remove after tuning.
+  router.get("/api/predscan", async (_req, res) => {
+    res.json(await predScan());
   });
 
   return router;
