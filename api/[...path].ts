@@ -1,7 +1,7 @@
-// Vercel serverless entry. Handles every /api/* request via the shared
-// Express router. WebSockets aren't available on serverless, so the client
-// falls back to its built-in live data generator; the bot/opportunity
-// simulation is advanced opportunistically on each request instead.
+// Vercel serverless entry — catch-all so every /api/* path routes here
+// reliably (no rewrite-to-index needed). WebSockets aren't available on
+// serverless, so the client polls /api/opportunities for the live feed;
+// the bot simulation is advanced one step per request.
 import express from "express";
 import { createApiRouter } from "../server/routes";
 import { bots } from "../server/store";
