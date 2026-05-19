@@ -409,134 +409,187 @@ function deriveDerivatives(
   return out;
 }
 
-async function fetchPolymarket(): Promise<ServerOpportunity[]> {
+// A binary YES/NO market from a single prediction venue.
+interface PredMarket {
+  venue: "Polymarket" | "Kalshi";
+  title: string;
+  yesBid: number; // best price to SELL a YES contract
+  yesAsk: number; // best price to BUY a YES contract
+  liquidity: number;
+  ref: string; // polymarket slug / kalshi ticker (for deep links)
+}
+
+async function fetchPolyRaw(): Promise<PredMarket[]> {
   const j = await getJson(
-    "https://gamma-api.polymarket.com/markets?active=true&closed=false&archived=false&limit=18&order=volumeNum&ascending=false",
+    "https://gamma-api.polymarket.com/markets?active=true&closed=false&archived=false&limit=200&order=volumeNum&ascending=false",
   );
   if (!Array.isArray(j)) return [];
-  const out: ServerOpportunity[] = [];
+  const out: PredMarket[] = [];
   for (const m of j) {
-    const bid = parseFloat(m.bestBid);
-    const ask = parseFloat(m.bestAsk);
-    if (!(bid > 0) || !(ask > 0) || ask <= bid || ask >= 1) continue;
-    const rawSpread = ((ask - bid) / ask) * 100;
-    const liquidity = Math.round(parseFloat(m.liquidityNum) || 0);
-    // Use the event/market slug so the client deep-link
-    // (polymarket.com/event/<slug>) resolves to the real market.
-    const slug =
-      m.events?.[0]?.slug || m.slug || m.conditionId || String(m.id);
-    const id = `poly:${slug}`;
-    const t = track(id, rawSpread);
-    const question: string = m.question || m.slug || "Polymarket market";
+    const yesBid = parseFloat(m.bestBid);
+    const yesAsk = parseFloat(m.bestAsk);
+    if (!(yesBid > 0) || !(yesAsk > 0) || yesAsk <= yesBid || yesAsk >= 1)
+      continue;
     out.push({
-      id,
-      type: "prediction",
-      asset: question,
-      assetShort:
-        question.length > 38 ? question.slice(0, 36) + "…" : question,
-      buyPlatform: "Polymarket",
-      sellPlatform: "Polymarket",
-      buyPrice: parseFloat(ask.toFixed(3)),
-      sellPrice: parseFloat(bid.toFixed(3)),
-      rawSpread: parseFloat(rawSpread.toFixed(3)),
-      netProfit: parseFloat((-rawSpread).toFixed(3)),
-      netProfitDollar: parseFloat((-rawSpread * 10).toFixed(2)),
-      confidence: confidenceFromLiquidity(liquidity),
-      liquidity,
-      buyFee: 0,
-      sellFee: 0,
-      slippageEst: parseFloat((rawSpread / 2).toFixed(3)),
-      detectedAt: t.detectedAt,
-      aiInsight: "",
-      aiRisk: null,
-      aiReason: null,
-      aiConfidence: null,
-      aiAnalyzedAt: null,
-      aiRiskBreakdown: null,
-      algorithmicRisk: riskFromSpread(rawSpread, liquidity),
-      hasAiInsight: false,
-      isAiAnalyzing: false,
-      aiModel: null,
-      status: "active",
-      spreadHistory: t.history.slice(),
+      venue: "Polymarket",
+      title: String(m.question || m.title || "").trim(),
+      yesBid,
+      yesAsk,
+      liquidity: Math.round(parseFloat(m.liquidityNum) || 0),
+      ref: m.events?.[0]?.slug || m.slug || m.conditionId || String(m.id),
     });
   }
   return out;
 }
 
-// Kalshi public market data — GET /markets is unauthenticated
-// (OpenAPI security: []), so no API key or request signing is needed.
-async function fetchKalshi(): Promise<ServerOpportunity[]> {
+async function fetchKalshiRaw(): Promise<PredMarket[]> {
   const base =
     process.env.KALSHI_API_BASE ||
     "https://api.elections.kalshi.com/trade-api/v2";
-  // mve_filter=exclude drops multivariate sports parlays server-side
-  // (otherwise they swamp the first pages and hide real markets).
+  // mve_filter=exclude drops multivariate sports parlays server-side.
   const j = await getJson(
-    `${base}/markets?status=open&limit=300&mve_filter=exclude`,
+    `${base}/markets?status=open&limit=500&mve_filter=exclude`,
   );
   const markets = j?.markets;
   if (!Array.isArray(markets)) return [];
-
-  const ranked = markets
-    .map((m: any) => {
-      const ask = parseFloat(m.yes_ask_dollars);
-      const bid = parseFloat(m.yes_bid_dollars);
-      const vol =
-        parseFloat(m.volume_24h_fp) || parseFloat(m.volume_fp) || 0;
-      const oi = parseFloat(m.open_interest_fp) || 0;
-      return { m, ask, bid, liq: Math.max(vol, oi) };
-    })
-    .filter(
-      (r) =>
-        r.bid > 0 &&
-        r.ask > 0 &&
-        r.ask > r.bid &&
-        r.ask < 1 &&
-        r.liq >= 200 &&
-        // drop illiquid multivariate sports parlays — they dominate the
-        // raw feed but aren't meaningful single-question markets
-        !r.m.mve_collection_ticker &&
-        !/^KXMVE/.test(r.m.ticker || ""),
-    )
-    .sort((a, b) => b.liq - a.liq);
-
-  // One market per event (the most liquid strike) for a diverse list.
-  const seen = new Set<string>();
-  const rows: typeof ranked = [];
-  for (const r of ranked) {
-    const ev = r.m.event_ticker || r.m.ticker;
-    if (seen.has(ev)) continue;
-    seen.add(ev);
-    rows.push(r);
-    if (rows.length >= 14) break;
+  const out: PredMarket[] = [];
+  for (const m of markets) {
+    if (m.mve_collection_ticker || /^KXMVE/.test(m.ticker || "")) continue;
+    const yesAsk = parseFloat(m.yes_ask_dollars);
+    const yesBid = parseFloat(m.yes_bid_dollars);
+    if (!(yesBid > 0) || !(yesAsk > 0) || yesAsk <= yesBid || yesAsk >= 1)
+      continue;
+    const vol =
+      parseFloat(m.volume_24h_fp) ||
+      parseFloat(m.volume_fp) ||
+      parseFloat(m.open_interest_fp) ||
+      0;
+    out.push({
+      venue: "Kalshi",
+      title: String(m.title || m.yes_sub_title || m.ticker || "").trim(),
+      yesBid,
+      yesAsk,
+      liquidity: Math.round(vol),
+      ref: m.ticker,
+    });
   }
+  return out;
+}
 
+const STOPWORDS = new Set(
+  ("the a an of to in on by for will be is are at or and vs do does did " +
+    "than then this that with from into over under above below before after " +
+    "win wins won market markets event price yes no question who what when " +
+    "which year more less number total points game match")
+    .split(" "),
+);
+
+function tokenize(title: string) {
+  const tokens = new Set<string>();
+  const strong = new Set<string>(); // years / proper nouns / numbers
+  for (const raw of title.split(/[^A-Za-z0-9]+/)) {
+    if (!raw) continue;
+    const low = raw.toLowerCase();
+    const isYear = /^(19|20)\d{2}$/.test(raw);
+    const isNum = /^\d+$/.test(raw);
+    const isProper = /^[A-Z][a-z]{2,}$/.test(raw); // Capitalized word
+    if (isYear || isNum) {
+      tokens.add(low);
+      strong.add(low);
+      continue;
+    }
+    if (STOPWORDS.has(low) || low.length < 3) continue;
+    tokens.add(low);
+    if (isProper) strong.add(low);
+  }
+  return { tokens, strong };
+}
+
+function similarity(a: Set<string>, b: Set<string>) {
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  const union = a.size + b.size - inter;
+  return union ? inter / union : 0;
+}
+
+// Match the SAME real-world event across Polymarket and Kalshi and build a
+// genuine CROSS-PLATFORM opportunity (buy YES on the cheaper venue, sell
+// YES on the dearer). Conservative matching to avoid false pairs.
+function crossVenuePredictions(
+  poly: PredMarket[],
+  kalshi: PredMarket[],
+): ServerOpportunity[] {
+  const P = poly.map((m) => ({ m, ...tokenize(m.title) }));
+  const K = kalshi.map((m) => ({ m, ...tokenize(m.title) }));
+
+  type Cand = { p: (typeof P)[0]; k: (typeof K)[0]; sim: number };
+  const cands: Cand[] = [];
+  for (const p of P) {
+    for (const k of K) {
+      const sim = similarity(p.tokens, k.tokens);
+      if (sim < 0.5) continue;
+      let sharedStrong = 0;
+      for (const s of p.strong) if (k.strong.has(s)) sharedStrong++;
+      let shared = 0;
+      for (const t of p.tokens) if (k.tokens.has(t)) shared++;
+      // Require strong overlap (a shared year / proper noun / number) and
+      // at least two shared significant tokens overall.
+      if (sharedStrong >= 1 && shared >= 2) cands.push({ p, k, sim });
+    }
+  }
+  cands.sort((a, b) => b.sim - a.sim);
+
+  const usedP = new Set<string>();
+  const usedK = new Set<string>();
   const out: ServerOpportunity[] = [];
-  for (const { m, ask, bid, liq } of rows) {
-    const rawSpread = ((ask - bid) / ask) * 100;
-    const liquidity = Math.round(liq);
-    const id = `kalshi:${m.ticker}`;
+  for (const c of cands) {
+    if (usedP.has(c.p.m.ref) || usedK.has(c.k.m.ref)) continue;
+    usedP.add(c.p.m.ref);
+    usedK.add(c.k.m.ref);
+
+    const p = c.p.m;
+    const k = c.k.m;
+    // Two directions: buy YES where ask is lower, sell YES where bid higher.
+    const d1 = k.yesBid - p.yesAsk; // buy Poly, sell Kalshi
+    const d2 = p.yesBid - k.yesAsk; // buy Kalshi, sell Poly
+    const buyPoly = d1 >= d2;
+    const buyM = buyPoly ? p : k;
+    const sellM = buyPoly ? k : p;
+    const buyPrice = buyM.yesAsk;
+    const sellPrice = sellM.yesBid;
+    const rawSpread = ((sellPrice - buyPrice) / buyPrice) * 100;
+
+    // Skip pairs with no meaningful cross-venue gap (just noise).
+    if (Math.abs(rawSpread) < 1.5) continue;
+
+    const liquidity = Math.min(p.liquidity, k.liquidity);
+    const id = `xpred:${p.ref}~${k.ref}`;
     const t = track(id, rawSpread);
-    const title: string =
-      m.title || m.yes_sub_title || m.ticker || "Kalshi market";
+    const title = (p.title.length >= k.title.length ? p.title : k.title) ||
+      "Cross-venue market";
+    const buyFee = 0;
+    const sellFee = 0;
+    const slippageEst = 0.5;
+    const netProfit = parseFloat(
+      (rawSpread - buyFee - sellFee - slippageEst).toFixed(3),
+    );
     out.push({
       id,
       type: "prediction",
       asset: title,
       assetShort: title.length > 38 ? title.slice(0, 36) + "…" : title,
-      buyPlatform: "Kalshi",
-      sellPlatform: "Kalshi",
-      buyPrice: parseFloat(ask.toFixed(3)),
-      sellPrice: parseFloat(bid.toFixed(3)),
-      rawSpread: parseFloat(rawSpread.toFixed(3)),
-      netProfit: parseFloat((-rawSpread).toFixed(3)),
-      netProfitDollar: parseFloat((-rawSpread * 10).toFixed(2)),
+      buyPlatform: buyM.venue,
+      sellPlatform: sellM.venue,
+      buyPrice: parseFloat(buyPrice.toFixed(3)),
+      sellPrice: parseFloat(sellPrice.toFixed(3)),
+      rawSpread: parseFloat(Math.abs(rawSpread).toFixed(3)),
+      netProfit,
+      netProfitDollar: parseFloat((netProfit * 10).toFixed(2)),
       confidence: confidenceFromLiquidity(liquidity),
       liquidity,
-      buyFee: 0,
-      sellFee: 0,
-      slippageEst: parseFloat((rawSpread / 2).toFixed(3)),
+      buyFee,
+      sellFee,
+      slippageEst,
       detectedAt: t.detectedAt,
       aiInsight: "",
       aiRisk: null,
@@ -544,13 +597,14 @@ async function fetchKalshi(): Promise<ServerOpportunity[]> {
       aiConfidence: null,
       aiAnalyzedAt: null,
       aiRiskBreakdown: null,
-      algorithmicRisk: riskFromSpread(rawSpread, liquidity),
+      algorithmicRisk: riskFromSpread(Math.abs(rawSpread), liquidity),
       hasAiInsight: false,
       isAiAnalyzing: false,
       aiModel: null,
       status: "active",
       spreadHistory: t.history.slice(),
     });
+    if (out.length >= 12) break;
   }
   return out;
 }
@@ -579,7 +633,7 @@ const CACHE_MS = 4000;
 let inflight: Promise<LiveData> | null = null;
 
 async function refresh(): Promise<LiveData> {
-  const [bybit, okx, binance, kucoin, gate, cryptocom, poly, kalshi] =
+  const [bybit, okx, binance, kucoin, gate, cryptocom, polyRaw, kalshiRaw] =
     await Promise.all([
       fetchBybit(),
       fetchOkx(),
@@ -587,8 +641,8 @@ async function refresh(): Promise<LiveData> {
       fetchKucoin(),
       fetchGate(),
       fetchCryptoCom(),
-      fetchPolymarket().catch(() => []),
-      fetchKalshi().catch(() => []),
+      fetchPolyRaw().catch(() => [] as PredMarket[]),
+      fetchKalshiRaw().catch(() => [] as PredMarket[]),
     ]);
 
   const venues: { venue: string; book: VenueBook }[] = [];
@@ -600,16 +654,19 @@ async function refresh(): Promise<LiveData> {
   if (cryptocom) venues.push({ venue: "Crypto.com", book: cryptocom });
 
   const crypto = venues.length >= 2 ? buildCrypto(venues) : [];
-  const prediction = [...kalshi, ...poly];
+  // Genuine cross-platform prediction arbitrage (same event matched
+  // across Polymarket and Kalshi). Empty if only one venue is reachable
+  // or no confident matches — that's the honest result.
+  const prediction = crossVenuePredictions(polyRaw, kalshiRaw);
   const haveLiveCrypto = crypto.length > 0;
   const haveLivePred = prediction.length > 0;
 
   let opportunities: ServerOpportunity[];
   if (!haveLiveCrypto && !haveLivePred) {
-    // Total outage — everything synthetic.
+    // Total outage — synthetic crypto/forex/derivatives only (never fake
+    // prediction; real cross-venue arb can't be synthesised honestly).
     opportunities = syntheticOpportunities([
       "crypto_spot",
-      "prediction",
       "forex",
       "options",
       "futures_basis",
@@ -623,7 +680,9 @@ async function refresh(): Promise<LiveData> {
     const derived = haveLiveCrypto ? deriveDerivatives(venues) : [];
     if (!haveLiveCrypto)
       fillerTypes.push("crypto_spot", "futures_basis", "options");
-    if (!haveLivePred) fillerTypes.push("prediction");
+    // No synthetic prediction fallback: prediction rows are only shown
+    // when a real cross-venue match exists (otherwise the tab is empty,
+    // which is the honest outcome).
     opportunities = [
       ...crypto,
       ...prediction,
@@ -639,8 +698,12 @@ async function refresh(): Promise<LiveData> {
     { platform: "KuCoin", up: !!kucoin, n: kucoin?.size ?? 0 },
     { platform: "Gate.io", up: !!gate, n: gate?.size ?? 0 },
     { platform: "Crypto.com", up: !!cryptocom, n: cryptocom?.size ?? 0 },
-    { platform: "Kalshi", up: kalshi.length > 0, n: kalshi.length },
-    { platform: "Polymarket", up: poly.length > 0, n: poly.length },
+    { platform: "Kalshi", up: kalshiRaw.length > 0, n: kalshiRaw.length },
+    {
+      platform: "Polymarket",
+      up: polyRaw.length > 0,
+      n: polyRaw.length,
+    },
   ].map((c) => ({
     platform: c.platform,
     status: c.up ? ("connected" as const) : ("disconnected" as const),

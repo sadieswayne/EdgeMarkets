@@ -117,8 +117,22 @@ export function getTradeLink(platform: string, asset: string, marketId?: string)
   const k = key(name);
 
   // Prediction-market identifiers from the opportunity id.
-  let predId: string | undefined;
-  if (marketId && marketId.includes(':')) predId = marketId.split(':').slice(1).join(':');
+  //   "poly:<slug>"            single-venue (legacy)
+  //   "kalshi:<ticker>"        single-venue (legacy)
+  //   "xpred:<slug>~<ticker>"  cross-venue: pick the leg by platform
+  let polyId: string | undefined;
+  let kalshiId: string | undefined;
+  if (marketId) {
+    if (marketId.startsWith('xpred:')) {
+      const [s, tk] = marketId.slice(6).split('~');
+      polyId = s || undefined;
+      kalshiId = tk || undefined;
+    } else if (marketId.startsWith('poly:')) {
+      polyId = marketId.slice(5);
+    } else if (marketId.startsWith('kalshi:')) {
+      kalshiId = marketId.slice(7);
+    }
+  }
 
   switch (k) {
     case 'binance': case 'binancespot': return binance(asset, futures);
@@ -130,8 +144,8 @@ export function getTradeLink(platform: string, asset: string, marketId?: string)
     case 'gateio': case 'gate': return gate(asset);
     case 'cryptocom': case 'crypto': return cryptocom(asset);
     case 'deribit': return deribit(asset);
-    case 'polymarket': return polymarket(predId);
-    case 'kalshi': return kalshi(predId);
+    case 'polymarket': return polymarket(polyId);
+    case 'kalshi': return kalshi(kalshiId);
     case 'manifold': return manifold();
     case 'oanda': case 'fxcm': case 'ibkr': case 'saxo': case 'saxobank':
       return forexBroker(name, asset);
