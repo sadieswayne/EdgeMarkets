@@ -4,9 +4,10 @@
   "buildCommand": "npm run vercel-build",
   "outputDirectory": "dist/public",
   "functions": {
-    "api/**": { "maxDuration": 30 }
+    "api/index.js": { "maxDuration": 30 }
   },
   "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

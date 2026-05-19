@@ -29509,6 +29509,58 @@ async function fetchBinance() {
   }
   return book.size ? book : null;
 }
+async function fetchKucoin() {
+  const j = await getJson("https://api.kucoin.com/api/v1/market/allTickers");
+  const list = j?.data?.ticker;
+  if (!Array.isArray(list)) return null;
+  const book = /* @__PURE__ */ new Map();
+  for (const t of list) {
+    const sym = t.symbol || "";
+    if (!sym.endsWith("-USDT")) continue;
+    const base = sym.slice(0, -5);
+    if (!CRYPTO_BASES.includes(base)) continue;
+    const bid = parseFloat(t.buy);
+    const ask = parseFloat(t.sell);
+    if (bid > 0 && ask > 0)
+      book.set(base, { bid, ask, quoteVol: parseFloat(t.volValue) });
+  }
+  return book.size ? book : null;
+}
+async function fetchGate() {
+  const j = await getJson("https://api.gateio.ws/api/v4/spot/tickers");
+  if (!Array.isArray(j)) return null;
+  const book = /* @__PURE__ */ new Map();
+  for (const t of j) {
+    const sym = t.currency_pair || "";
+    if (!sym.endsWith("_USDT")) continue;
+    const base = sym.slice(0, -5);
+    if (!CRYPTO_BASES.includes(base)) continue;
+    const bid = parseFloat(t.highest_bid);
+    const ask = parseFloat(t.lowest_ask);
+    if (bid > 0 && ask > 0)
+      book.set(base, { bid, ask, quoteVol: parseFloat(t.quote_volume) });
+  }
+  return book.size ? book : null;
+}
+async function fetchCryptoCom() {
+  const j = await getJson(
+    "https://api.crypto.com/exchange/v1/public/get-tickers"
+  );
+  const list = j?.result?.data;
+  if (!Array.isArray(list)) return null;
+  const book = /* @__PURE__ */ new Map();
+  for (const t of list) {
+    const sym = t.i || "";
+    if (!sym.endsWith("_USDT")) continue;
+    const base = sym.slice(0, -5);
+    if (!CRYPTO_BASES.includes(base)) continue;
+    const bid = parseFloat(t.b);
+    const ask = parseFloat(t.k);
+    if (bid > 0 && ask > 0)
+      book.set(base, { bid, ask, quoteVol: parseFloat(t.vv) });
+  }
+  return book.size ? book : null;
+}
 var tracks = /* @__PURE__ */ new Map();
 function track(id, spread) {
   let t = tracks.get(id);
@@ -29809,10 +29861,13 @@ var cache = null;
 var CACHE_MS = 4e3;
 var inflight = null;
 async function refresh() {
-  const [bybit, okx, binance, poly, kalshi] = await Promise.all([
+  const [bybit, okx, binance, kucoin, gate, cryptocom, poly, kalshi] = await Promise.all([
     fetchBybit(),
     fetchOkx(),
     fetchBinance(),
+    fetchKucoin(),
+    fetchGate(),
+    fetchCryptoCom(),
     fetchPolymarket().catch(() => []),
     fetchKalshi().catch(() => [])
   ]);
@@ -29820,6 +29875,9 @@ async function refresh() {
   if (bybit) venues.push({ venue: "Bybit", book: bybit });
   if (okx) venues.push({ venue: "OKX", book: okx });
   if (binance) venues.push({ venue: "Binance", book: binance });
+  if (kucoin) venues.push({ venue: "KuCoin", book: kucoin });
+  if (gate) venues.push({ venue: "Gate.io", book: gate });
+  if (cryptocom) venues.push({ venue: "Crypto.com", book: cryptocom });
   const crypto = venues.length >= 2 ? buildCrypto(venues) : [];
   const prediction = [...kalshi, ...poly];
   const haveLiveCrypto = crypto.length > 0;
@@ -29850,9 +29908,11 @@ async function refresh() {
     { platform: "Bybit", up: !!bybit, n: bybit?.size ?? 0 },
     { platform: "OKX", up: !!okx, n: okx?.size ?? 0 },
     { platform: "Binance", up: !!binance, n: binance?.size ?? 0 },
+    { platform: "KuCoin", up: !!kucoin, n: kucoin?.size ?? 0 },
+    { platform: "Gate.io", up: !!gate, n: gate?.size ?? 0 },
+    { platform: "Crypto.com", up: !!cryptocom, n: cryptocom?.size ?? 0 },
     { platform: "Kalshi", up: kalshi.length > 0, n: kalshi.length },
-    { platform: "Polymarket", up: poly.length > 0, n: poly.length },
-    { platform: "Coinbase", up: false, n: 0 }
+    { platform: "Polymarket", up: poly.length > 0, n: poly.length }
   ].map((c) => ({
     platform: c.platform,
     status: c.up ? "connected" : "disconnected",

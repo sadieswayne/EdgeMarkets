@@ -1,6 +1,5 @@
 node_modules/
 dist/
-api/[...path].js
 .env
 data/bots.json
 data/trades.json
