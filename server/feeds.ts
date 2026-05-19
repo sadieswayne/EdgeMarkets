@@ -421,7 +421,11 @@ async function fetchPolymarket(): Promise<ServerOpportunity[]> {
     if (!(bid > 0) || !(ask > 0) || ask <= bid || ask >= 1) continue;
     const rawSpread = ((ask - bid) / ask) * 100;
     const liquidity = Math.round(parseFloat(m.liquidityNum) || 0);
-    const id = `poly:${m.conditionId || m.slug || m.id}`;
+    // Use the event/market slug so the client deep-link
+    // (polymarket.com/event/<slug>) resolves to the real market.
+    const slug =
+      m.events?.[0]?.slug || m.slug || m.conditionId || String(m.id);
+    const id = `poly:${slug}`;
     const t = track(id, rawSpread);
     const question: string = m.question || m.slug || "Polymarket market";
     out.push({

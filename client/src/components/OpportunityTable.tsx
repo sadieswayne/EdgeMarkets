@@ -205,7 +205,7 @@ export const OpportunityTable = memo(function OpportunityTable({
                             onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--green-subtle)'; }}
                             onClick={e => {
                               e.stopPropagation();
-                              openTradeLink(opp.buyPlatform, opp.asset);
+                              openTradeLink(opp.buyPlatform, opp.asset, opp.id);
                               onExecute?.(opp.buyPlatform, opp.asset);
                             }}
                           >
@@ -223,7 +223,7 @@ export const OpportunityTable = memo(function OpportunityTable({
                             onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'var(--red-subtle)'; }}
                             onClick={e => {
                               e.stopPropagation();
-                              openTradeLink(opp.sellPlatform, opp.asset);
+                              openTradeLink(opp.sellPlatform, opp.asset, opp.id);
                               onExecute?.(opp.sellPlatform, opp.asset);
                             }}
                           >

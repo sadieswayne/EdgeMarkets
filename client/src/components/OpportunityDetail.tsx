@@ -15,9 +15,9 @@ interface OpportunityDetailProps {
 
 export const OpportunityDetail = memo(function OpportunityDetail({ opportunity: opp, onExecute, onAskAI }: OpportunityDetailProps) {
   const handleExecute = useCallback((platform: string) => {
-    openTradeLink(platform, opp.asset);
+    openTradeLink(platform, opp.asset, opp.id);
     onExecute?.(platform, opp.asset);
-  }, [opp.asset, onExecute]);
+  }, [opp.asset, opp.id, onExecute]);
 
   return (
     <div
