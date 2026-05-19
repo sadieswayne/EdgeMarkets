@@ -45,7 +45,7 @@ type VenueBook = Map<string, Quote>; // base -> quote
 
 async function getJson(url: string): Promise<any | null> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 4500);
+  const timer = setTimeout(() => ctrl.abort(), 3500);
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
@@ -411,7 +411,7 @@ async function fetchKalshi(): Promise<ServerOpportunity[]> {
   // mve_filter=exclude drops multivariate sports parlays server-side
   // (otherwise they swamp the first pages and hide real markets).
   const j = await getJson(
-    `${base}/markets?status=open&limit=1000&mve_filter=exclude`,
+    `${base}/markets?status=open&limit=300&mve_filter=exclude`,
   );
   const markets = j?.markets;
   if (!Array.isArray(markets)) return [];
