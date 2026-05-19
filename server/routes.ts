@@ -6,7 +6,7 @@ import {
   aiUsage,
   newsAlerts,
 } from "./store";
-import { getLiveData, predScan } from "./feeds";
+import { getLiveData } from "./feeds";
 
 const chatSessions = new Map<
   string,
@@ -134,7 +134,7 @@ export function createApiRouter(): Router {
   router.post(
     "/api/ai/chat/:chatId/message",
     async (req: Request, res: Response) => {
-      const session = chatSessions.get(req.params.chatId);
+      const session = chatSessions.get(String(req.params.chatId));
       const oppId = session?.opportunityId ?? null;
       const message = String(req.body?.message ?? "").slice(0, 4000);
       if (!message) {
@@ -168,7 +168,7 @@ export function createApiRouter(): Router {
   });
 
   router.patch("/api/bots/:id", (req: Request, res: Response) => {
-    const bot = bots.update(req.params.id, req.body ?? {});
+    const bot = bots.update(String(req.params.id), req.body ?? {});
     if (!bot) {
       res.status(404).json({ error: "not found" });
       return;
@@ -177,7 +177,7 @@ export function createApiRouter(): Router {
   });
 
   router.delete("/api/bots/:id", (req: Request, res: Response) => {
-    res.json({ ok: bots.remove(req.params.id) });
+    res.json({ ok: bots.remove(String(req.params.id)) });
   });
 
   const lifecycle: Record<string, Parameters<typeof bots.setStatus>[1]> = {
@@ -188,7 +188,7 @@ export function createApiRouter(): Router {
   };
   for (const action of Object.keys(lifecycle)) {
     router.post(`/api/bots/:id/${action}`, (req: Request, res: Response) => {
-      const bot = bots.setStatus(req.params.id, lifecycle[action]);
+      const bot = bots.setStatus(String(req.params.id), lifecycle[action]);
       if (!bot) {
         res.status(404).json({ error: "not found" });
         return;
@@ -208,10 +208,6 @@ export function createApiRouter(): Router {
     });
   });
 
-  // TEMPORARY: prediction-matcher calibration. Remove after tuning.
-  router.get("/api/predscan", async (_req, res) => {
-    res.json(await predScan());
-  });
 
   return router;
 }

@@ -29836,7 +29836,7 @@ function tokenize(title) {
     if (STOPWORDS.has(low) || low.length < 3) continue;
     const c = canon(low);
     tokens.add(c);
-    if (isProper || ALIASES[low]) strong.add(c);
+    if (isProper || ALIASES[low] || c.length >= 5) strong.add(c);
   }
   return { tokens, strong };
 }
@@ -29853,7 +29853,7 @@ function crossVenuePredictions(poly, kalshi) {
   for (const p of P) {
     for (const k of K) {
       const sim = similarity(p.tokens, k.tokens);
-      if (sim < 0.5) continue;
+      if (sim < 0.45) continue;
       let sharedStrong = 0;
       for (const s of p.strong) if (k.strong.has(s)) sharedStrong++;
       let shared = 0;
@@ -29924,40 +29924,6 @@ function crossVenuePredictions(poly, kalshi) {
     if (out.length >= 12) break;
   }
   return out;
-}
-async function predScan() {
-  const [poly, kalshi] = await Promise.all([
-    fetchPolyRaw().catch(() => []),
-    fetchKalshiRaw().catch(() => [])
-  ]);
-  const P = poly.map((m) => ({ m, ...tokenize(m.title) }));
-  const K = kalshi.map((m) => ({ m, ...tokenize(m.title) }));
-  const pairs = [];
-  for (const p of P) {
-    for (const k of K) {
-      const sim = similarity(p.tokens, k.tokens);
-      if (sim < 0.34) continue;
-      let strong = 0;
-      for (const s of p.strong) if (k.strong.has(s)) strong++;
-      let shared = 0;
-      for (const t of p.tokens) if (k.tokens.has(t)) shared++;
-      pairs.push({
-        sim: +sim.toFixed(2),
-        strong,
-        shared,
-        poly: p.m.title,
-        kalshi: k.m.title
-      });
-    }
-  }
-  pairs.sort((a, b) => b.sim - a.sim);
-  return {
-    polyCount: poly.length,
-    kalshiCount: kalshi.length,
-    samplePoly: poly.slice(0, 12).map((m) => m.title),
-    sampleKalshi: kalshi.slice(0, 12).map((m) => m.title),
-    topPairs: pairs.slice(0, 30)
-  };
 }
 var cache = null;
 var CACHE_MS = 4e3;
@@ -30178,7 +30144,7 @@ function createApiRouter() {
   router.post(
     "/api/ai/chat/:chatId/message",
     async (req, res) => {
-      const session = chatSessions.get(req.params.chatId);
+      const session = chatSessions.get(String(req.params.chatId));
       const oppId = session?.opportunityId ?? null;
       const message = String(req.body?.message ?? "").slice(0, 4e3);
       if (!message) {
@@ -30205,7 +30171,7 @@ function createApiRouter() {
     res.json({ bot: bots.create(req.body ?? {}) });
   });
   router.patch("/api/bots/:id", (req, res) => {
-    const bot = bots.update(req.params.id, req.body ?? {});
+    const bot = bots.update(String(req.params.id), req.body ?? {});
     if (!bot) {
       res.status(404).json({ error: "not found" });
       return;
@@ -30213,7 +30179,7 @@ function createApiRouter() {
     res.json({ bot });
   });
   router.delete("/api/bots/:id", (req, res) => {
-    res.json({ ok: bots.remove(req.params.id) });
+    res.json({ ok: bots.remove(String(req.params.id)) });
   });
   const lifecycle = {
     start: "starting",
@@ -30223,7 +30189,7 @@ function createApiRouter() {
   };
   for (const action of Object.keys(lifecycle)) {
     router.post(`/api/bots/:id/${action}`, (req, res) => {
-      const bot = bots.setStatus(req.params.id, lifecycle[action]);
+      const bot = bots.setStatus(String(req.params.id), lifecycle[action]);
       if (!bot) {
         res.status(404).json({ error: "not found" });
         return;
@@ -30239,9 +30205,6 @@ function createApiRouter() {
       stats: data.stats,
       live: data.live
     });
-  });
-  router.get("/api/predscan", async (_req, res) => {
-    res.json(await predScan());
   });
   return router;
 }

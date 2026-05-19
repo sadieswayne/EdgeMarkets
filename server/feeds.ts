@@ -535,7 +535,9 @@ function tokenize(title: string) {
     if (STOPWORDS.has(low) || low.length < 3) continue;
     const c = canon(low);
     tokens.add(c);
-    if (isProper || ALIASES[low]) strong.add(c);
+    // A token is "strong" if it's likely topical (entity / topic word):
+    // capitalized in source, in our alias map, or sufficiently long.
+    if (isProper || ALIASES[low] || c.length >= 5) strong.add(c);
   }
   return { tokens, strong };
 }
@@ -564,7 +566,7 @@ function crossVenuePredictions(
   for (const p of P) {
     for (const k of K) {
       const sim = similarity(p.tokens, k.tokens);
-      if (sim < 0.5) continue;
+      if (sim < 0.45) continue;
       let sharedStrong = 0;
       for (const s of p.strong) if (k.strong.has(s)) sharedStrong++;
       let shared = 0;
@@ -644,44 +646,6 @@ function crossVenuePredictions(
     if (out.length >= 12) break;
   }
   return out;
-}
-
-// TEMPORARY diagnostic: inspect raw venue titles and top candidate pairs
-// (regardless of threshold) so the matcher can be calibrated against the
-// real Vercel-side data. Remove once tuned.
-export async function predScan() {
-  const [poly, kalshi] = await Promise.all([
-    fetchPolyRaw().catch(() => [] as PredMarket[]),
-    fetchKalshiRaw().catch(() => [] as PredMarket[]),
-  ]);
-  const P = poly.map((m) => ({ m, ...tokenize(m.title) }));
-  const K = kalshi.map((m) => ({ m, ...tokenize(m.title) }));
-  const pairs: any[] = [];
-  for (const p of P) {
-    for (const k of K) {
-      const sim = similarity(p.tokens, k.tokens);
-      if (sim < 0.34) continue;
-      let strong = 0;
-      for (const s of p.strong) if (k.strong.has(s)) strong++;
-      let shared = 0;
-      for (const t of p.tokens) if (k.tokens.has(t)) shared++;
-      pairs.push({
-        sim: +sim.toFixed(2),
-        strong,
-        shared,
-        poly: p.m.title,
-        kalshi: k.m.title,
-      });
-    }
-  }
-  pairs.sort((a, b) => b.sim - a.sim);
-  return {
-    polyCount: poly.length,
-    kalshiCount: kalshi.length,
-    samplePoly: poly.slice(0, 12).map((m) => m.title),
-    sampleKalshi: kalshi.slice(0, 12).map((m) => m.title),
-    topPairs: pairs.slice(0, 30),
-  };
 }
 
 export interface Connection {
