@@ -154,28 +154,38 @@ export function generateInitialData(): ArbitrageOpportunity[] {
   return opps.sort(() => Math.random() - 0.5);
 }
 
-const NEW_ASSETS: Record<OpportunityType, { asset: string; assetShort: string; buyPlatform: string; sellPlatform: string }[]> = {
+// `base` is an approximate real-world price anchor so the explicit
+// ?mock=true demo shows believable numbers instead of random values.
+type NewAsset = {
+  asset: string;
+  assetShort: string;
+  buyPlatform: string;
+  sellPlatform: string;
+  base: number;
+};
+
+const NEW_ASSETS: Record<OpportunityType, NewAsset[]> = {
   prediction: [
-    { asset: 'AI beats human at science research', assetShort: 'AI Science', buyPlatform: 'Polymarket', sellPlatform: 'Manifold' },
-    { asset: 'S&P 500 above 6000 by Dec', assetShort: 'SPX 6k Dec', buyPlatform: 'Kalshi', sellPlatform: 'Polymarket' },
-    { asset: 'Bitcoin halving price pump >50%', assetShort: 'BTC Halving', buyPlatform: 'Polymarket', sellPlatform: 'Kalshi' },
+    { asset: 'AI beats human at science research', assetShort: 'AI Science', buyPlatform: 'Polymarket', sellPlatform: 'Manifold', base: 0.22 },
+    { asset: 'S&P 500 above 6000 by Dec', assetShort: 'SPX 6k Dec', buyPlatform: 'Kalshi', sellPlatform: 'Polymarket', base: 0.61 },
+    { asset: 'Bitcoin halving price pump >50%', assetShort: 'BTC Halving', buyPlatform: 'Polymarket', sellPlatform: 'Kalshi', base: 0.34 },
   ],
   crypto_spot: [
-    { asset: 'PEPE/USDT', assetShort: 'PEPE/USDT', buyPlatform: 'Binance', sellPlatform: 'KuCoin' },
-    { asset: 'SUI/USDT', assetShort: 'SUI/USDT', buyPlatform: 'Bybit', sellPlatform: 'Coinbase' },
-    { asset: 'TIA/USDT', assetShort: 'TIA/USDT', buyPlatform: 'Kraken', sellPlatform: 'Binance' },
+    { asset: 'PEPE/USDT', assetShort: 'PEPE/USDT', buyPlatform: 'Binance', sellPlatform: 'KuCoin', base: 0.0000115 },
+    { asset: 'SUI/USDT', assetShort: 'SUI/USDT', buyPlatform: 'Bybit', sellPlatform: 'Coinbase', base: 3.4 },
+    { asset: 'TIA/USDT', assetShort: 'TIA/USDT', buyPlatform: 'Kraken', sellPlatform: 'Binance', base: 4.1 },
   ],
   futures_basis: [
-    { asset: 'AVAX Basis Trade', assetShort: 'AVAX Basis', buyPlatform: 'Binance Spot', sellPlatform: 'Binance Futures' },
-    { asset: 'LINK Funding Rate', assetShort: 'LINK Funding', buyPlatform: 'Bybit', sellPlatform: 'OKX' },
+    { asset: 'AVAX Basis Trade', assetShort: 'AVAX Basis', buyPlatform: 'Binance Spot', sellPlatform: 'Binance Futures', base: 38 },
+    { asset: 'LINK Funding Rate', assetShort: 'LINK Funding', buyPlatform: 'Bybit', sellPlatform: 'OKX', base: 19 },
   ],
   forex: [
-    { asset: 'CHF/USD Cross-Exchange', assetShort: 'CHF/USD', buyPlatform: 'Kraken', sellPlatform: 'Coinbase' },
-    { asset: 'BUSD/USDT Peg Arb', assetShort: 'BUSD/USDT', buyPlatform: 'Binance', sellPlatform: 'KuCoin' },
+    { asset: 'CHF/USD Cross-Exchange', assetShort: 'CHF/USD', buyPlatform: 'Kraken', sellPlatform: 'Coinbase', base: 1.12 },
+    { asset: 'BUSD/USDT Peg Arb', assetShort: 'BUSD/USDT', buyPlatform: 'Binance', sellPlatform: 'KuCoin', base: 1.0 },
   ],
   options: [
-    { asset: 'SOL Vol Surface Arb', assetShort: 'SOL Vol', buyPlatform: 'Deribit', sellPlatform: 'OKX' },
-    { asset: 'ETH Iron Condor Arb', assetShort: 'ETH Condor', buyPlatform: 'OKX', sellPlatform: 'Deribit' },
+    { asset: 'SOL Vol Surface Arb', assetShort: 'SOL Vol', buyPlatform: 'Deribit', sellPlatform: 'OKX', base: 12.5 },
+    { asset: 'ETH Iron Condor Arb', assetShort: 'ETH Condor', buyPlatform: 'OKX', sellPlatform: 'Deribit', base: 58 },
   ],
 };
 
@@ -183,22 +193,27 @@ export function generateNewOpportunity(): ArbitrageOpportunity {
   const type = pick<OpportunityType>(['prediction', 'crypto_spot', 'futures_basis', 'forex', 'options']);
   const template = pick(NEW_ASSETS[type]);
 
-  const rawSpread = parseFloat(rand(0.5, 12).toFixed(2));
-  let buyPrice: number, sellPrice: number;
+  // Realistic spread bands per market type.
+  const rawSpread =
+    type === 'crypto_spot'
+      ? parseFloat(rand(0.02, 0.6).toFixed(3))
+      : type === 'forex'
+        ? parseFloat(rand(0.02, 0.3).toFixed(3))
+        : parseFloat(rand(0.5, 6).toFixed(2));
 
-  if (type === 'prediction') {
-    buyPrice = parseFloat(rand(0.1, 0.8).toFixed(2));
-    sellPrice = parseFloat((buyPrice + rawSpread / 100).toFixed(2));
-  } else if (type === 'crypto_spot') {
-    buyPrice = parseFloat(rand(0.5, 70000).toFixed(2));
-    sellPrice = parseFloat((buyPrice * (1 + rawSpread / 100)).toFixed(2));
-  } else {
-    buyPrice = parseFloat(rand(1, 5000).toFixed(2));
-    sellPrice = parseFloat((buyPrice * (1 + rawSpread / 100)).toFixed(2));
-  }
+  const dp = template.base < 1 ? 6 : template.base < 100 ? 4 : 2;
+  // Buy price within ±0.3% of the anchor, sell price one spread above.
+  const buyPrice = parseFloat((template.base * (1 + rand(-0.003, 0.003))).toFixed(dp));
+  const sellPrice =
+    type === 'prediction'
+      ? parseFloat(Math.min(buyPrice + rawSpread / 100, 0.99).toFixed(3))
+      : parseFloat((buyPrice * (1 + rawSpread / 100)).toFixed(dp));
 
   return buildOpportunity({
-    ...template,
+    asset: template.asset,
+    assetShort: template.assetShort,
+    buyPlatform: template.buyPlatform,
+    sellPlatform: template.sellPlatform,
     buyPrice,
     sellPrice,
     rawSpread,

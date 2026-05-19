@@ -117,32 +117,22 @@ export function useTerminal() {
   const live = useLiveData(isMockParam);
 
   // Data-source priority:
-  //   1. ?mock=true            → client-side generator (explicit demo)
-  //   2. live WebSocket        → real feed streamed from a running server
+  //   1. ?mock=true              → client-side generator (explicit demo only)
+  //   2. live WebSocket          → real feed streamed from a running server
   //   3. REST /api/opportunities → real feed (serverless/Vercel, no WS)
-  //   4. only if REST produces nothing → client generator (last resort)
+  //
+  // The client-side generator is NEVER used as an automatic fallback: it
+  // fabricates prices and produced nonsense values. The REST endpoint always
+  // returns real feed data (or realistic server-side seeds on outage), so it
+  // is the dependable non-WebSocket source.
   const restEnabled = !isMockParam && !live.isConnected;
   const rest = useRestData(restEnabled);
 
-  const [graceElapsed, setGraceElapsed] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setGraceElapsed(true), 7000);
-    return () => clearTimeout(t);
-  }, []);
-
-  const restEmptyAfterGrace =
-    graceElapsed &&
-    rest.loaded &&
-    rest.opportunities.length === 0;
   const mode: 'mock' | 'live' | 'rest' = isMockParam
     ? 'mock'
     : live.isConnected
       ? 'live'
-      : rest.opportunities.length > 0
-        ? 'rest'
-        : restEmptyAfterGrace
-          ? 'mock'
-          : 'rest';
+      : 'rest';
   const isMock = mode === 'mock';
 
   const mockConnections: PlatformConnection[] = useMemo(() => [

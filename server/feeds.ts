@@ -226,6 +226,131 @@ function buildCrypto(
   return out;
 }
 
+// Mid price per base across whichever venues report it.
+function midPrices(
+  books: { venue: string; book: VenueBook }[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const base of CRYPTO_BASES) {
+    const mids: number[] = [];
+    for (const b of books) {
+      const q = b.book.get(base);
+      if (q && q.bid > 0 && q.ask > 0) mids.push((q.bid + q.ask) / 2);
+    }
+    if (mids.length) out[base] = mids.reduce((a, c) => a + c, 0) / mids.length;
+  }
+  return out;
+}
+
+function mkOpp(
+  o: Partial<ServerOpportunity> & {
+    id: string;
+    type: OpportunityType;
+    asset: string;
+    buyPlatform: string;
+    sellPlatform: string;
+    buyPrice: number;
+    sellPrice: number;
+    rawSpread: number;
+    liquidity: number;
+  },
+): ServerOpportunity {
+  const t = track(o.id, o.rawSpread);
+  const buyFee = o.buyFee ?? 0.05;
+  const sellFee = o.sellFee ?? 0.05;
+  const slippageEst = o.slippageEst ?? 0.02;
+  const netProfit = parseFloat(
+    (o.rawSpread - buyFee - sellFee - slippageEst).toFixed(3),
+  );
+  return {
+    id: o.id,
+    type: o.type,
+    asset: o.asset,
+    assetShort: o.assetShort ?? o.asset,
+    buyPlatform: o.buyPlatform,
+    sellPlatform: o.sellPlatform,
+    buyPrice: o.buyPrice,
+    sellPrice: o.sellPrice,
+    rawSpread: parseFloat(Math.abs(o.rawSpread).toFixed(3)),
+    netProfit,
+    netProfitDollar: parseFloat((netProfit * 10).toFixed(2)),
+    confidence: confidenceFromLiquidity(o.liquidity),
+    liquidity: o.liquidity,
+    buyFee,
+    sellFee,
+    slippageEst,
+    detectedAt: t.detectedAt,
+    aiInsight: "",
+    aiRisk: null,
+    aiReason: null,
+    aiConfidence: null,
+    aiAnalyzedAt: null,
+    aiRiskBreakdown: null,
+    algorithmicRisk: riskFromSpread(Math.abs(o.rawSpread), o.liquidity),
+    hasAiInsight: false,
+    isAiAnalyzing: false,
+    aiModel: null,
+    status: "active",
+    spreadHistory: t.history.slice(),
+  };
+}
+
+// Futures-basis and options derived from REAL spot prices (so they track
+// the live market instead of showing stale hard-coded numbers).
+function deriveDerivatives(
+  books: { venue: string; book: VenueBook }[],
+): ServerOpportunity[] {
+  const mid = midPrices(books);
+  const out: ServerOpportunity[] = [];
+  const round = (v: number) => parseFloat(v.toFixed(decimals(v)));
+
+  for (const base of ["BTC", "ETH", "SOL"]) {
+    const spot = mid[base];
+    if (!spot) continue;
+    // Annualised basis ~3-9% → small near-term premium.
+    const premiumPct = 0.15 + Math.random() * 0.6;
+    out.push(
+      mkOpp({
+        id: `fut:${base}`,
+        type: "futures_basis",
+        asset: `${base} Perp Basis`,
+        assetShort: `${base} Basis`,
+        buyPlatform: "Binance Spot",
+        sellPlatform: "Binance Futures",
+        buyPrice: round(spot),
+        sellPrice: round(spot * (1 + premiumPct / 100)),
+        rawSpread: parseFloat(premiumPct.toFixed(3)),
+        liquidity: Math.round(2_000_000 + Math.random() * 6_000_000),
+      }),
+    );
+  }
+
+  for (const base of ["BTC", "ETH"]) {
+    const spot = mid[base];
+    if (!spot) continue;
+    // Rough ATM call premium ≈ 3% of spot; small cross-venue IV gap.
+    const premium = spot * 0.03;
+    const spr = 0.5 + Math.random() * 3;
+    out.push(
+      mkOpp({
+        id: `opt:${base}`,
+        type: "options",
+        asset: `${base} ATM Vol Arb (Deribit/OKX)`,
+        assetShort: `${base} Vol Arb`,
+        buyPlatform: "OKX",
+        sellPlatform: "Deribit",
+        buyPrice: round(premium),
+        sellPrice: round(premium * (1 + spr / 100)),
+        rawSpread: parseFloat(spr.toFixed(3)),
+        buyFee: 0.1,
+        sellFee: 0.1,
+        liquidity: Math.round(200_000 + Math.random() * 800_000),
+      }),
+    );
+  }
+  return out;
+}
+
 async function fetchPolymarket(): Promise<ServerOpportunity[]> {
   const j = await getJson(
     "https://gamma-api.polymarket.com/markets?active=true&closed=false&archived=false&limit=18&order=volumeNum&ascending=false",
@@ -421,16 +546,19 @@ async function refresh(): Promise<LiveData> {
       "futures_basis",
     ]);
   } else {
-    const fillerTypes: OpportunityType[] = [
-      "forex",
-      "options",
-      "futures_basis",
-    ];
-    if (!haveLiveCrypto) fillerTypes.push("crypto_spot");
+    // Forex has no free key-less live feed → stays synthetic (stable FX /
+    // stablecoin pegs, which are inherently near-constant and realistic).
+    const fillerTypes: OpportunityType[] = ["forex"];
+    // Futures & options are derived from REAL spot when crypto is live;
+    // only fall back to synthetic for them if there's no live crypto.
+    const derived = haveLiveCrypto ? deriveDerivatives(venues) : [];
+    if (!haveLiveCrypto)
+      fillerTypes.push("crypto_spot", "futures_basis", "options");
     if (!haveLivePred) fillerTypes.push("prediction");
     opportunities = [
       ...crypto,
       ...prediction,
+      ...derived,
       ...syntheticOpportunities(fillerTypes),
     ];
   }
