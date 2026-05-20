@@ -14,6 +14,7 @@ import { ToastContainer } from './components/wallet/ToastContainer';
 import { PortfolioPanel } from './components/portfolio/PortfolioPanel';
 import { AIChatPanel } from './components/AIChatPanel';
 import { NewsAlertBar } from './components/NewsAlertBar';
+import { AnnouncementModal } from './components/AnnouncementModal';
 import { useTerminal } from './hooks/useTerminal';
 import { useWalletState } from './hooks/useWalletState';
 import { useToast } from './hooks/useToast';
@@ -238,6 +239,8 @@ function AppInner() {
       />
 
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+      <AnnouncementModal />
     </div>
   );
 }
