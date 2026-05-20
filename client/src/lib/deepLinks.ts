@@ -75,6 +75,16 @@ function deribit(asset: string): DeepLinkResult {
   const { base } = normalizeSymbol(asset);
   return { url: `https://www.deribit.com/options/${base.toLowerCase()}`, platform: 'Deribit', description: `Trade ${base} options on Deribit` };
 }
+function hyperliquid(asset: string, hlTicker?: string): DeepLinkResult {
+  // Prefer the canonical Hyperliquid ticker (from the opp id) over parsing
+  // the asset display name, since IPO names can be free-text.
+  const sym = (hlTicker || normalizeSymbol(asset).base || asset).toUpperCase();
+  return {
+    url: `https://app.hyperliquid.xyz/trade/${sym}`,
+    platform: 'Hyperliquid',
+    description: `Trade ${sym} on Hyperliquid`,
+  };
+}
 
 /* ---- Prediction markets ---- */
 
@@ -122,6 +132,7 @@ export function getTradeLink(platform: string, asset: string, marketId?: string)
   //   "xpred:<slug>~<ticker>"  cross-venue: pick the leg by platform
   let polyId: string | undefined;
   let kalshiId: string | undefined;
+  let hlTicker: string | undefined;
   if (marketId) {
     if (marketId.startsWith('xpred:')) {
       const [s, tk] = marketId.slice(6).split('~');
@@ -131,6 +142,8 @@ export function getTradeLink(platform: string, asset: string, marketId?: string)
       polyId = marketId.slice(5);
     } else if (marketId.startsWith('kalshi:')) {
       kalshiId = marketId.slice(7);
+    } else if (marketId.startsWith('hl:')) {
+      hlTicker = marketId.slice(3);
     }
   }
 
@@ -144,6 +157,7 @@ export function getTradeLink(platform: string, asset: string, marketId?: string)
     case 'gateio': case 'gate': return gate(asset);
     case 'cryptocom': case 'crypto': return cryptocom(asset);
     case 'deribit': return deribit(asset);
+    case 'hyperliquid': case 'hl': return hyperliquid(asset, hlTicker);
     case 'polymarket': return polymarket(polyId);
     case 'kalshi': return kalshi(kalshiId);
     case 'manifold': return manifold();

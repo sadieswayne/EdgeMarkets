@@ -28913,7 +28913,10 @@ var SEEDS = {
     { asset: "BTC Put-Call Parity Mar 70k", assetShort: "BTC PCP 70k", buyPlatform: "Deribit", sellPlatform: "OKX", buyPrice: 2840, sellPrice: 2863, rawSpread: 0.8, confidence: 3, liquidity: 62e4 },
     { asset: "ETH Vol Spread Deribit/OKX", assetShort: "ETH Vol Arb", buyPlatform: "OKX", sellPlatform: "Deribit", buyPrice: 58, sellPrice: 62, rawSpread: 4, confidence: 2, liquidity: 34e4 },
     { asset: "BTC Butterfly Spread", assetShort: "BTC Butterfly", buyPlatform: "Deribit", sellPlatform: "OKX", buyPrice: 420, sellPrice: 435, rawSpread: 3.5, confidence: 3, liquidity: 28e4 }
-  ]
+  ],
+  // IPO Markets are sourced live from Hyperliquid (or a wrapper API);
+  // never synthesised — empty seed keeps the SEEDS record well-typed.
+  ipo: []
 };
 function spreadHistory(base) {
   const points = [];
@@ -29561,6 +29564,126 @@ async function fetchCryptoCom() {
   }
   return book.size ? book : null;
 }
+async function hlInfoPost(body) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3500);
+  try {
+    const res = await fetch("https://api.hyperliquid.xyz/info", {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+var DEFAULT_IPO_TICKERS = ["XAI"];
+function parseTickerList(env) {
+  if (!env) return DEFAULT_IPO_TICKERS;
+  return env.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+}
+async function fetchHlIpoRaw() {
+  const customUrl = process.env.HL_IPO_API_URL;
+  if (customUrl) {
+    const j2 = await getJson(customUrl);
+    const list = Array.isArray(j2) ? j2 : j2?.markets || j2?.data || j2?.items || [];
+    const out2 = [];
+    for (const x of list) {
+      const ticker = String(
+        x.ticker || x.symbol || x.name || x.coin || ""
+      ).toUpperCase();
+      const bid = parseFloat(x.bid ?? x.bidPrice ?? x.bestBid);
+      const ask = parseFloat(x.ask ?? x.askPrice ?? x.bestAsk);
+      const mid = parseFloat(
+        x.mid ?? x.midPx ?? x.markPx ?? x.last ?? (bid + ask) / 2
+      );
+      const liquidity = Math.round(
+        parseFloat(x.liquidity ?? x.dayNtlVlm ?? x.volume24h ?? x.volume) || 0
+      );
+      if (!ticker || !(bid > 0) || !(ask > 0) || ask <= bid) continue;
+      out2.push({ ticker, bid, ask, mid: mid || (bid + ask) / 2, liquidity });
+    }
+    return out2;
+  }
+  const wanted = new Set(parseTickerList(process.env.HL_IPO_TICKERS));
+  const j = await hlInfoPost({ type: "metaAndAssetCtxs" });
+  if (!Array.isArray(j) || j.length < 2) return [];
+  const meta = j[0];
+  const ctxs = j[1];
+  const universe = meta?.universe || [];
+  const out = [];
+  for (let i = 0; i < universe.length; i++) {
+    const name = (universe[i]?.name || "").toUpperCase();
+    if (!wanted.has(name)) continue;
+    const c = ctxs[i];
+    if (!c) continue;
+    const impact = Array.isArray(c.impactPxs) ? c.impactPxs : null;
+    const bid = parseFloat(impact?.[0] ?? c.midPx);
+    const ask = parseFloat(impact?.[1] ?? c.midPx);
+    const mid = parseFloat(c.midPx ?? c.markPx ?? ((bid + ask) / 2).toString());
+    if (!(bid > 0) || !(ask > 0) || ask <= bid) continue;
+    out.push({
+      ticker: name,
+      bid,
+      ask,
+      mid: mid || (bid + ask) / 2,
+      liquidity: Math.round(parseFloat(c.dayNtlVlm) || 0)
+    });
+  }
+  return out;
+}
+function buildIpoOpportunities(rows) {
+  const out = [];
+  for (const r of rows) {
+    const rawSpread = (r.ask - r.bid) / r.ask * 100;
+    const id = `hl:${r.ticker}`;
+    const t = track(id, rawSpread);
+    const buyFee = 0.045;
+    const sellFee = 0.045;
+    const slippageEst = 0.05;
+    const netProfit = parseFloat(
+      (-(rawSpread + buyFee + sellFee + slippageEst)).toFixed(3)
+    );
+    const dp = r.mid < 1 ? 5 : r.mid < 100 ? 4 : 2;
+    out.push({
+      id,
+      type: "ipo",
+      asset: `${r.ticker} (Pre-IPO)`,
+      assetShort: r.ticker,
+      buyPlatform: "Hyperliquid",
+      sellPlatform: "Hyperliquid",
+      buyPrice: parseFloat(r.ask.toFixed(dp)),
+      sellPrice: parseFloat(r.bid.toFixed(dp)),
+      rawSpread: parseFloat(rawSpread.toFixed(3)),
+      netProfit,
+      netProfitDollar: parseFloat((netProfit * 10).toFixed(2)),
+      confidence: confidenceFromLiquidity(r.liquidity),
+      liquidity: r.liquidity,
+      buyFee,
+      sellFee,
+      slippageEst,
+      detectedAt: t.detectedAt,
+      aiInsight: "",
+      aiRisk: null,
+      aiReason: null,
+      aiConfidence: null,
+      aiAnalyzedAt: null,
+      aiRiskBreakdown: null,
+      algorithmicRisk: riskFromSpread(rawSpread, r.liquidity),
+      hasAiInsight: false,
+      isAiAnalyzing: false,
+      aiModel: null,
+      status: "active",
+      spreadHistory: t.history.slice()
+    });
+  }
+  return out;
+}
 var tracks = /* @__PURE__ */ new Map();
 function track(id, spread) {
   let t = tracks.get(id);
@@ -29929,7 +30052,17 @@ var cache = null;
 var CACHE_MS = 4e3;
 var inflight = null;
 async function refresh() {
-  const [bybit, okx, binance, kucoin, gate, cryptocom, polyRaw, kalshiRaw] = await Promise.all([
+  const [
+    bybit,
+    okx,
+    binance,
+    kucoin,
+    gate,
+    cryptocom,
+    polyRaw,
+    kalshiRaw,
+    ipoRaw
+  ] = await Promise.all([
     fetchBybit(),
     fetchOkx(),
     fetchBinance(),
@@ -29937,7 +30070,8 @@ async function refresh() {
     fetchGate(),
     fetchCryptoCom(),
     fetchPolyRaw().catch(() => []),
-    fetchKalshiRaw().catch(() => [])
+    fetchKalshiRaw().catch(() => []),
+    fetchHlIpoRaw().catch(() => [])
   ]);
   const venues = [];
   if (bybit) venues.push({ venue: "Bybit", book: bybit });
@@ -29948,10 +30082,11 @@ async function refresh() {
   if (cryptocom) venues.push({ venue: "Crypto.com", book: cryptocom });
   const crypto = venues.length >= 2 ? buildCrypto(venues) : [];
   const prediction = crossVenuePredictions(polyRaw, kalshiRaw);
+  const ipo = buildIpoOpportunities(ipoRaw);
   const haveLiveCrypto = crypto.length > 0;
   const haveLivePred = prediction.length > 0;
   let opportunities;
-  if (!haveLiveCrypto && !haveLivePred) {
+  if (!haveLiveCrypto && !haveLivePred && ipo.length === 0) {
     opportunities = syntheticOpportunities([
       "crypto_spot",
       "forex",
@@ -29966,6 +30101,7 @@ async function refresh() {
     opportunities = [
       ...crypto,
       ...prediction,
+      ...ipo,
       ...derived,
       ...syntheticOpportunities(fillerTypes)
     ];
@@ -29982,7 +30118,8 @@ async function refresh() {
       platform: "Polymarket",
       up: polyRaw.length > 0,
       n: polyRaw.length
-    }
+    },
+    { platform: "Hyperliquid", up: ipo.length > 0, n: ipo.length }
   ].map((c) => ({
     platform: c.platform,
     status: c.up ? "connected" : "disconnected",
@@ -30001,7 +30138,7 @@ async function refresh() {
       bestOpportunity: spreads.length ? Math.max(...spreads) : 0,
       totalVolume: opportunities.reduce((s, o) => s + o.liquidity, 0)
     },
-    live: haveLiveCrypto || haveLivePred
+    live: haveLiveCrypto || haveLivePred || ipo.length > 0
   };
   return data;
 }

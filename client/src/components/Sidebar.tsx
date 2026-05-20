@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { Layers, TrendingUp, Bitcoin, BarChart3, ArrowLeftRight, Zap, Check, Bot, Activity } from 'lucide-react';
+import { Layers, TrendingUp, Bitcoin, BarChart3, ArrowLeftRight, Zap, Briefcase, Check, Bot, Activity } from 'lucide-react';
 import { type FilterState, type OpportunityType, type LiveStats } from '../lib/types';
 import { PLATFORMS, LIQUIDITY_OPTIONS, TIME_OPTIONS } from '../lib/constants';
 import { formatCurrency, formatPercent } from '../lib/format';
@@ -7,7 +7,7 @@ import type { PlatformConnection } from '../hooks/useLiveData';
 import type { AggregatePerformance } from '../hooks/useBots';
 
 const ICON_MAP: Record<string, typeof Layers> = {
-  Layers, TrendingUp, Bitcoin, BarChart3, ArrowLeftRight, Zap,
+  Layers, TrendingUp, Bitcoin, BarChart3, ArrowLeftRight, Zap, Briefcase,
 };
 
 const CATS: { id: OpportunityType | 'all'; label: string; iconName: string }[] = [
@@ -17,6 +17,7 @@ const CATS: { id: OpportunityType | 'all'; label: string; iconName: string }[] =
   { id: 'futures_basis', label: 'Futures / Basis', iconName: 'BarChart3' },
   { id: 'forex', label: 'Forex', iconName: 'ArrowLeftRight' },
   { id: 'options', label: 'Options', iconName: 'Zap' },
+  { id: 'ipo', label: 'IPO Markets', iconName: 'Briefcase' },
 ];
 
 const BOT_CATS: { id: string; label: string }[] = [

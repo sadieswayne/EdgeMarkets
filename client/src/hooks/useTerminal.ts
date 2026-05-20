@@ -298,6 +298,7 @@ export function useTerminal() {
       futures_basis: active.filter(o => o.type === 'futures_basis').length,
       forex: active.filter(o => o.type === 'forex').length,
       options: active.filter(o => o.type === 'options').length,
+      ipo: active.filter(o => o.type === 'ipo').length,
     };
   }, [dataSource.opportunities]);
 

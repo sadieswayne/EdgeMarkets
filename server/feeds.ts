@@ -181,6 +181,158 @@ async function fetchCryptoCom(): Promise<VenueBook | null> {
   return book.size ? book : null;
 }
 
+/* ------------------------------------------------------------------ */
+/* IPO Markets (Hyperliquid + custom wrapper)                         */
+/* ------------------------------------------------------------------ */
+
+// Hyperliquid /info is a POST endpoint, not GET — small dedicated helper.
+async function hlInfoPost(body: object): Promise<any | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3500);
+  try {
+    const res = await fetch("https://api.hyperliquid.xyz/info", {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+interface IpoRow {
+  ticker: string;
+  bid: number;
+  ask: number;
+  mid: number;
+  liquidity: number;
+}
+
+// Default Hyperliquid tickers treated as IPO/pre-IPO exposure. The wider
+// pre-IPO universe usually lives on a custom wrapper API — set
+// HL_IPO_API_URL to point at it (JSON: array of {ticker, bid, ask, mid?,
+// liquidity?}). Otherwise we surface whatever from the standard
+// Hyperliquid perp universe matches HL_IPO_TICKERS.
+const DEFAULT_IPO_TICKERS = ["XAI"]; // only IPO-named symbol currently in std universe
+
+function parseTickerList(env: string | undefined): string[] {
+  if (!env) return DEFAULT_IPO_TICKERS;
+  return env
+    .split(",")
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+async function fetchHlIpoRaw(): Promise<IpoRow[]> {
+  const customUrl = process.env.HL_IPO_API_URL;
+  if (customUrl) {
+    // Custom wrapper — accept either an array or { markets/data: [...] }.
+    const j = await getJson(customUrl);
+    const list: any[] = Array.isArray(j)
+      ? j
+      : j?.markets || j?.data || j?.items || [];
+    const out: IpoRow[] = [];
+    for (const x of list) {
+      const ticker = String(
+        x.ticker || x.symbol || x.name || x.coin || "",
+      ).toUpperCase();
+      const bid = parseFloat(x.bid ?? x.bidPrice ?? x.bestBid);
+      const ask = parseFloat(x.ask ?? x.askPrice ?? x.bestAsk);
+      const mid = parseFloat(
+        x.mid ?? x.midPx ?? x.markPx ?? x.last ?? (bid + ask) / 2,
+      );
+      const liquidity = Math.round(
+        parseFloat(x.liquidity ?? x.dayNtlVlm ?? x.volume24h ?? x.volume) || 0,
+      );
+      if (!ticker || !(bid > 0) || !(ask > 0) || ask <= bid) continue;
+      out.push({ ticker, bid, ask, mid: mid || (bid + ask) / 2, liquidity });
+    }
+    return out;
+  }
+
+  // Fallback: standard Hyperliquid perp universe, filtered to configured
+  // IPO/pre-IPO tickers.
+  const wanted = new Set(parseTickerList(process.env.HL_IPO_TICKERS));
+  const j = await hlInfoPost({ type: "metaAndAssetCtxs" });
+  if (!Array.isArray(j) || j.length < 2) return [];
+  const meta = j[0];
+  const ctxs = j[1];
+  const universe: { name: string }[] = meta?.universe || [];
+  const out: IpoRow[] = [];
+  for (let i = 0; i < universe.length; i++) {
+    const name = (universe[i]?.name || "").toUpperCase();
+    if (!wanted.has(name)) continue;
+    const c = ctxs[i];
+    if (!c) continue;
+    const impact = Array.isArray(c.impactPxs) ? c.impactPxs : null;
+    const bid = parseFloat(impact?.[0] ?? c.midPx);
+    const ask = parseFloat(impact?.[1] ?? c.midPx);
+    const mid = parseFloat(c.midPx ?? c.markPx ?? ((bid + ask) / 2).toString());
+    if (!(bid > 0) || !(ask > 0) || ask <= bid) continue;
+    out.push({
+      ticker: name,
+      bid,
+      ask,
+      mid: mid || (bid + ask) / 2,
+      liquidity: Math.round(parseFloat(c.dayNtlVlm) || 0),
+    });
+  }
+  return out;
+}
+
+function buildIpoOpportunities(rows: IpoRow[]): ServerOpportunity[] {
+  const out: ServerOpportunity[] = [];
+  for (const r of rows) {
+    const rawSpread = ((r.ask - r.bid) / r.ask) * 100;
+    const id = `hl:${r.ticker}`;
+    const t = track(id, rawSpread);
+    const buyFee = 0.045; // Hyperliquid taker
+    const sellFee = 0.045;
+    const slippageEst = 0.05;
+    const netProfit = parseFloat(
+      (-(rawSpread + buyFee + sellFee + slippageEst)).toFixed(3),
+    );
+    const dp = r.mid < 1 ? 5 : r.mid < 100 ? 4 : 2;
+    out.push({
+      id,
+      type: "ipo",
+      asset: `${r.ticker} (Pre-IPO)`,
+      assetShort: r.ticker,
+      buyPlatform: "Hyperliquid",
+      sellPlatform: "Hyperliquid",
+      buyPrice: parseFloat(r.ask.toFixed(dp)),
+      sellPrice: parseFloat(r.bid.toFixed(dp)),
+      rawSpread: parseFloat(rawSpread.toFixed(3)),
+      netProfit,
+      netProfitDollar: parseFloat((netProfit * 10).toFixed(2)),
+      confidence: confidenceFromLiquidity(r.liquidity),
+      liquidity: r.liquidity,
+      buyFee,
+      sellFee,
+      slippageEst,
+      detectedAt: t.detectedAt,
+      aiInsight: "",
+      aiRisk: null,
+      aiReason: null,
+      aiConfidence: null,
+      aiAnalyzedAt: null,
+      aiRiskBreakdown: null,
+      algorithmicRisk: riskFromSpread(rawSpread, r.liquidity),
+      hasAiInsight: false,
+      isAiAnalyzing: false,
+      aiModel: null,
+      status: "active",
+      spreadHistory: t.history.slice(),
+    });
+  }
+  return out;
+}
+
 // Per-opportunity history + first-seen, keyed by stable id, so the
 // sparkline and "age" reflect real observed evolution.
 interface Track {
@@ -672,17 +824,27 @@ const CACHE_MS = 4000;
 let inflight: Promise<LiveData> | null = null;
 
 async function refresh(): Promise<LiveData> {
-  const [bybit, okx, binance, kucoin, gate, cryptocom, polyRaw, kalshiRaw] =
-    await Promise.all([
-      fetchBybit(),
-      fetchOkx(),
-      fetchBinance(),
-      fetchKucoin(),
-      fetchGate(),
-      fetchCryptoCom(),
-      fetchPolyRaw().catch(() => [] as PredMarket[]),
-      fetchKalshiRaw().catch(() => [] as PredMarket[]),
-    ]);
+  const [
+    bybit,
+    okx,
+    binance,
+    kucoin,
+    gate,
+    cryptocom,
+    polyRaw,
+    kalshiRaw,
+    ipoRaw,
+  ] = await Promise.all([
+    fetchBybit(),
+    fetchOkx(),
+    fetchBinance(),
+    fetchKucoin(),
+    fetchGate(),
+    fetchCryptoCom(),
+    fetchPolyRaw().catch(() => [] as PredMarket[]),
+    fetchKalshiRaw().catch(() => [] as PredMarket[]),
+    fetchHlIpoRaw().catch(() => [] as IpoRow[]),
+  ]);
 
   const venues: { venue: string; book: VenueBook }[] = [];
   if (bybit) venues.push({ venue: "Bybit", book: bybit });
@@ -697,13 +859,16 @@ async function refresh(): Promise<LiveData> {
   // across Polymarket and Kalshi). Empty if only one venue is reachable
   // or no confident matches — that's the honest result.
   const prediction = crossVenuePredictions(polyRaw, kalshiRaw);
+  // IPO Markets: real Hyperliquid (or wrapper) quotes — single-venue
+  // reference pricing for pre-IPO exposure, not arbitrage.
+  const ipo = buildIpoOpportunities(ipoRaw);
   const haveLiveCrypto = crypto.length > 0;
   const haveLivePred = prediction.length > 0;
 
   let opportunities: ServerOpportunity[];
-  if (!haveLiveCrypto && !haveLivePred) {
+  if (!haveLiveCrypto && !haveLivePred && ipo.length === 0) {
     // Total outage — synthetic crypto/forex/derivatives only (never fake
-    // prediction; real cross-venue arb can't be synthesised honestly).
+    // prediction or IPO; those are honest-or-empty).
     opportunities = syntheticOpportunities([
       "crypto_spot",
       "forex",
@@ -725,6 +890,7 @@ async function refresh(): Promise<LiveData> {
     opportunities = [
       ...crypto,
       ...prediction,
+      ...ipo,
       ...derived,
       ...syntheticOpportunities(fillerTypes),
     ];
@@ -743,6 +909,7 @@ async function refresh(): Promise<LiveData> {
       up: polyRaw.length > 0,
       n: polyRaw.length,
     },
+    { platform: "Hyperliquid", up: ipo.length > 0, n: ipo.length },
   ].map((c) => ({
     platform: c.platform,
     status: c.up ? ("connected" as const) : ("disconnected" as const),
@@ -764,7 +931,7 @@ async function refresh(): Promise<LiveData> {
       bestOpportunity: spreads.length ? Math.max(...spreads) : 0,
       totalVolume: opportunities.reduce((s, o) => s + o.liquidity, 0),
     },
-    live: haveLiveCrypto || haveLivePred,
+    live: haveLiveCrypto || haveLivePred || ipo.length > 0,
   };
   return data;
 }

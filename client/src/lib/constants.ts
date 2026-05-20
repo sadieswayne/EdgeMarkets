@@ -7,9 +7,10 @@ export const CATEGORIES: { id: OpportunityType | 'all'; label: string; iconName:
   { id: 'futures_basis', label: 'Futures / Basis', iconName: 'BarChart3' },
   { id: 'forex', label: 'Forex', iconName: 'ArrowLeftRight' },
   { id: 'options', label: 'Options', iconName: 'Zap' },
+  { id: 'ipo', label: 'IPO Markets', iconName: 'Briefcase' },
 ];
 
-export const PLATFORMS = ['Polymarket', 'Kalshi', 'Binance', 'Coinbase', 'Bybit', 'Kraken', 'OANDA', 'FXCM', 'IBKR', 'Saxo Bank', 'KuCoin', 'Deribit', 'OKX', 'Manifold'];
+export const PLATFORMS = ['Polymarket', 'Kalshi', 'Binance', 'Coinbase', 'Bybit', 'Kraken', 'OANDA', 'FXCM', 'IBKR', 'Saxo Bank', 'KuCoin', 'Gate.io', 'Crypto.com', 'Deribit', 'OKX', 'Hyperliquid', 'Manifold'];
 
 export const SORT_OPTIONS = [
   { value: 'diverse', label: 'Diverse' },
@@ -28,4 +29,5 @@ export const CATEGORY_COLORS: Record<OpportunityType, string> = {
   futures_basis: '#3B82F6',
   forex: '#10B981',
   options: '#EF4444',
+  ipo: '#EC4899',
 };

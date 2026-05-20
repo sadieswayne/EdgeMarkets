@@ -7,7 +7,8 @@ export type OpportunityType =
   | "crypto_spot"
   | "futures_basis"
   | "forex"
-  | "options";
+  | "options"
+  | "ipo";
 
 type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "AVOID";
 
@@ -114,6 +115,9 @@ const SEEDS: Record<OpportunityType, Seed[]> = {
     { asset: "ETH Vol Spread Deribit/OKX", assetShort: "ETH Vol Arb", buyPlatform: "OKX", sellPlatform: "Deribit", buyPrice: 58, sellPrice: 62, rawSpread: 4.0, confidence: 2, liquidity: 340000 },
     { asset: "BTC Butterfly Spread", assetShort: "BTC Butterfly", buyPlatform: "Deribit", sellPlatform: "OKX", buyPrice: 420, sellPrice: 435, rawSpread: 3.5, confidence: 3, liquidity: 280000 },
   ],
+  // IPO Markets are sourced live from Hyperliquid (or a wrapper API);
+  // never synthesised — empty seed keeps the SEEDS record well-typed.
+  ipo: [],
 };
 
 function spreadHistory(base: number): number[] {

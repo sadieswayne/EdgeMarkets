@@ -1,5 +1,5 @@
 import { useMemo, memo } from 'react';
-import { TrendingUp, Bitcoin, BarChart3, ArrowLeftRight, Zap } from 'lucide-react';
+import { TrendingUp, Bitcoin, BarChart3, ArrowLeftRight, Zap, Briefcase } from 'lucide-react';
 import { type ArbitrageOpportunity, type OpportunityType } from '../lib/types';
 import { formatPercent } from '../lib/format';
 
@@ -9,6 +9,7 @@ const TYPE_ICONS: Record<OpportunityType, typeof TrendingUp> = {
   futures_basis: BarChart3,
   forex: ArrowLeftRight,
   options: Zap,
+  ipo: Briefcase,
 };
 
 interface TickerBarProps {

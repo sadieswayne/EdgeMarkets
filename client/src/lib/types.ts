@@ -1,4 +1,4 @@
-export type OpportunityType = 'prediction' | 'crypto_spot' | 'futures_basis' | 'forex' | 'options';
+export type OpportunityType = 'prediction' | 'crypto_spot' | 'futures_basis' | 'forex' | 'options' | 'ipo';
 export type OpportunityStatus = 'active' | 'expiring' | 'expired';
 export type AIRiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'AVOID';
 
