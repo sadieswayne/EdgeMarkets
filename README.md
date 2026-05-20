@@ -8,7 +8,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-98.8%25-blue)](https://www.typescriptlang.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-[Website](https://edgemarkets.trade) · [Twitter](https://x.com/EdgeMarketsX)
+[Website](https://edgemarkets.trade) · [Twitter](https://x.com/EdgeMarketsSOL)
 
 </div>
 
