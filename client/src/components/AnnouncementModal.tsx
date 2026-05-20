@@ -47,14 +47,15 @@ export function AnnouncementModal() {
             onClick={dismiss}
           />
 
-          <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.98 }}
-            transition={{ type: 'spring', damping: 22, stiffness: 280 }}
-            className="fixed left-1/2 top-1/2 z-[101] -translate-x-1/2 -translate-y-1/2"
-            style={{ width: 460 }}
-          >
+          <div className="fixed inset-0 z-[101] flex items-center justify-center pointer-events-none p-4">
+            <motion.div
+              initial={{ opacity: 0, y: 16, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              transition={{ type: 'spring', damping: 22, stiffness: 280 }}
+              className="pointer-events-auto w-full"
+              style={{ maxWidth: 460 }}
+            >
             <div
               data-testid="announcement-modal"
               className="relative rounded-2xl overflow-hidden"
@@ -161,7 +162,8 @@ export function AnnouncementModal() {
                 style={{ backgroundColor: 'var(--accent-primary)' }}
               />
             </div>
-          </motion.div>
+            </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>
